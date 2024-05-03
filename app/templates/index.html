@@ -37,7 +37,7 @@
                 </li>
 
                 <li class="nav-item">
-                    <a href="https://pubmed.ncbi.nlm.nih.gov/36554060/">
+                    <a href="#" onclick="window.open('https://pubmed.ncbi.nlm.nih.gov/36554060/', '_blank')">
                         <i>
                             <img src="https://cdn-icons-png.flaticon.com/256/76/76148.png" width="20" height="20">
                         </i>
@@ -45,7 +45,7 @@
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a href="https://github.com/ArianaST?tab=repositories">
+                    <a href="#" onclick="window.open('https://github.com/ArianaST?tab=repositories', '_blank')">
                         <i>
                             <img src="https://cdn-icons-png.flaticon.com/256/2111/2111432.png" width="20" height="20">
                         </i>
@@ -71,22 +71,19 @@
                             </label>
                             <input type="file" name="file" id="imageUpload" accept=".png, .jpg, .jpeg">
                         </form>
-
+                        
                         <div class="image-section" style="display:none;">
                             <div class="img-preview">
-                                <div id="imagePreview">
-                                </div>
+                                <div id="imagePreview"></div>
                             </div>
                             <div>
                                 <button type="button" class="btn btn-dark" id="btn-predict">Predicción</button>
                             </div>
                         </div>
-
+                        
                         <div class="loader" style="display:none;"></div>
-
-                        <h3 id="result">
-                            <span> </span>
-                        </h3>
+                        
+                        <h3 id="result"><span></span></h3>
                     </div>
             </section>
     </div>

@@ -60,16 +60,19 @@ document.addEventListener("DOMContentLoaded", function() {
         }
         readURL(this);
     });
-
     $('#btn-predict').click(function(event) {
         event.preventDefault(); // Asegurarse de no enviar el formulario de manera tradicional
+        
+        // Validar si se ha seleccionado una imagen
+        var fileInput = $('#imageUpload');
+        if (fileInput.get(0).files.length === 0) {
+            $('#result').text('Por favor, selecciona una imagen antes de predecir.');
+            $('#result').show();
+            return; // No seguir adelante si no hay imagen seleccionada
+        }
+        
         var form_data = new FormData($('#upload-file')[0]);
-            // Chequear si hay una imagen para predecir
-    if ($('#imageUpload').get(0).files.length === 0) {
-        $('#result').text('Por favor, selecciona una imagen antes de predecir.');
-        $('#result').show();
-        return; // No seguir adelante si no hay imagen seleccionada
-    }
+        
         $('.loader').show();
         $.ajax({
             type: 'POST',
@@ -88,5 +91,6 @@ document.addEventListener("DOMContentLoaded", function() {
                 $('#result').text('Error: ' + error.responseText).fadeIn(600);
             }
         });
+     });    
     });
-});
+

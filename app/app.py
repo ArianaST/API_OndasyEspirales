@@ -1,14 +1,16 @@
 import logging
-from flask import Flask, request, render_template, jsonify, make_response
+from flask import Flask, request, render_template, jsonify
 from werkzeug.utils import secure_filename
 import os
 import cv2
 import joblib
-from skimage.feature import hog
+import numpy as np
+import json
 from keras.models import load_model
 
 app = Flask(__name__)
 
+HOG_WINDOW_SIZE = (96, 96)
 # Configuración básica del logging
 logging.basicConfig(level=logging.INFO)
 
@@ -17,40 +19,103 @@ if not os.path.exists(app.config['UPLOAD_FOLDER']):
     os.makedirs(app.config['UPLOAD_FOLDER'])
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg'}
 
-# Carga de modelos y transformadores
-try:
-    model_redn = load_model('Models/NeuronalCNN_LeNet5_Batch32_Transformadas.h5')
-    app.logger.info("Neuronal Network model loaded successfully.")
-except Exception as e:
-    app.logger.error(f"Failed to load Neuronal Network model: {e}")
+# Variables para modelos y transformadores
+model_redn, model_espirales, model_ondas, hog_espirales, hog_ondas = None, None, None, None, None
 
-try:
-    model_espirales = joblib.load('Models/SVM_Espirales.pkl')
-    model_ondas = joblib.load('Models/SVM_Ondas.pkl')
-    pca_espirales = joblib.load('Models/pca_model_wave.pkl')
-    pca_ondas = joblib.load('Models/pca_model_spiral.pkl')
-    hog_espirales = joblib.load('Models/hog_model_spiral.pkl')
-    hog_ondas = joblib.load('Models/hog_model_wave.pkl')
-    app.logger.info("All models and transformers loaded successfully.")
-except Exception as e:
-    app.logger.error(f"Failed to load one or more models/transformers: {e}")
+def load_hog_descriptor_from_json(file_path):
+    # Cargar los parámetros del descriptor HOG desde un archivo JSON
+    with open(file_path, 'r') as f:
+        params = json.load(f)
+    # Crear el descriptor HOG usando los parámetros cargados
+    hog = cv2.HOGDescriptor(
+        tuple(params['winSize']),
+        tuple(params['blockSize']),
+        tuple(params['blockStride']),
+        tuple(params['cellSize']),
+        params['nbins']
+    )
+    return hog
+
+# Inicializar los descriptores HOG al cargar la aplicación
+def load_models_and_transformers():
+    global model_redn, model_espirales, model_ondas, hog_espirales, hog_ondas
+    try:
+        model_redn = load_model('Models/NeuronalCNN_LeNet5_Batch32_Transformadas.h5')
+        app.logger.info("Neuronal Network model loaded successfully.")
+    except Exception as e:
+        app.logger.error(f"Failed to load Neuronal Network model: {e}")
+
+    try:
+        model_espirales = joblib.load('Models/RandomForest_Spirales2.pkl')
+        model_ondas = joblib.load('Models/RandomForest_Wave2.pkl')
+        app.logger.info("Random Forest models loaded successfully.")
+    except Exception as e:
+        app.logger.error(f"Failed to load Random Forest models: {e}")
+
+    try:
+        hog_espirales = load_hog_descriptor_from_json('Models/hog_params_spiral.json')
+        hog_ondas = load_hog_descriptor_from_json('Models/hog_params_wave.json')
+        app.logger.info("HOG descriptors loaded successfully.")
+    except Exception as e:
+        app.logger.error(f"Failed to load HOG descriptors: {e}")
+
+# Llamar a la función de carga de modelos y transformadores
+load_models_and_transformers()
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
-def prepare_image(file_path, pca, hog_descriptor):
-    img = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
-    if img is None:
-        app.logger.error("Failed to read image file.")
-        raise ValueError("Failed to read image file.")
-    img_resized = cv2.resize(img, (96, 96), interpolation=cv2.INTER_AREA)
-    features_hog = hog(img_resized, pixels_per_cell=(8, 8), cells_per_block=(2, 2), visualize=False)
-    features_pca = pca.transform([features_hog])
-    return features_pca[0]
-
 @app.route('/', methods=['GET'])
 def index():
     return render_template('index.html')
+
+def prepare_image(image_path, hog_descriptor):
+    try:
+        img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            app.logger.error("Error: Failed to read image")
+            return None, None
+        
+        # Comprobar si la imagen está vacía antes de redimensionar
+        if img.size == 0:
+            app.logger.error("Error: Empty image")
+            return None, None
+        
+        # Usa la constante HOG_WINDOW_SIZE para el redimensionamiento
+        img_resized = cv2.resize(img, HOG_WINDOW_SIZE)
+        # Comprobar si la imagen redimensionada está vacía
+        if img_resized.size == 0:
+            app.logger.error("Error: Empty resized image")
+            return None, None
+        
+        # Computa las características HOG
+        features_hog = hog_descriptor.compute(img_resized)
+        
+        # Verificar si hay un error al calcular las características HOG
+        if features_hog is None:
+            app.logger.error("Error: Failed to compute HOG features")
+            return None, None
+        
+        # Asegurarse de que las características HOG tengan la forma correcta
+        features_hog = features_hog.flatten()  # Aplanar las características HOG
+        if len(features_hog) != hog_descriptor.getDescriptorSize():
+            app.logger.error("Error: Incorrect number of HOG features")
+            return None, None
+        
+        # Imprime algunas características HOG
+        app.logger.info("HOG Features:")
+        app.logger.info(features_hog[:5])  # Imprime las primeras 5 características HOG
+        
+        # Imprime el total de características HOG
+        app.logger.info("Total HOG Features: %d", len(features_hog))
+        
+        # Agregar una dimensión adicional para que coincida con la esperada por el clasificador
+        features_hog = np.append(features_hog, 0)  # Valor predeterminado para la característica adicional
+        
+        return img_resized, features_hog
+    except Exception as e:
+        app.logger.error(f"Error during image processing: {e}")
+        return None, None
 
 @app.route('/predict/<model_type>', methods=['POST'])
 def predict(model_type):
@@ -66,48 +131,47 @@ def predict(model_type):
     file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(file_path)
 
+    try:
+        app.logger.info(f"Predicting with {model_type.capitalize()} model...")
+        label = None
+        if model_type == 'espirales' or model_type == 'ondas':
+            hog_descriptor = hog_espirales if model_type == 'espirales' else hog_ondas
+            img, features = prepare_image(file_path, hog_descriptor)
+            if img is not None and features is not None:
+                app.logger.info(f"Features extracted and transformed for {model_type} model.")
+                model = model_espirales if model_type == 'espirales' else model_ondas
+                prediction = model.predict([features])[0]
+                label = "Parkinson" if prediction == 1 else "Sano"
+            else:
+                app.logger.error(f"Failed to extract features for {model_type} model.")
+        elif model_type == 'redn':
+            app.logger.info("Predicting with redn model...")
+            img = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
+            img = cv2.resize(img, (96, 96))
+            img = np.expand_dims(img, axis=0) / 255.0
+            probability = model_redn.predict(img)[0]
+            label = 'Parkinson' if probability >= 0.5 else 'Sano'
+
+        return jsonify(result=label)
+    except Exception as e:
+        app.logger.error(f"Error during prediction: {e}")
+        return jsonify(error='Prediction failed'), 500
+
+@app.route('/upload', methods=['POST'])
+def upload():
+    if 'file' not in request.files:
+        return jsonify(error='No file part'), 400
+    file = request.files['file']
     if file.filename == '':
         return jsonify(error='No selected file'), 400
+    if not allowed_file(file.filename):
+        return jsonify(error='Invalid file type'), 400
 
-    try:
-        if model_type == 'espirales':
-            app.logger.info("Predicting with Espirales model...")
-            model = model_espirales
-            pca = pca_espirales
-            hog_descriptor = hog_espirales
-            features = prepare_image(file_path, pca, hog_descriptor)
-            pred = model.predict([features])[0]
-        elif model_type == 'ondas':
-            app.logger.info("Predicting with Ondas model...")
-            model = model_ondas
-            pca = pca_ondas
-            hog_descriptor = hog_ondas
-            features = prepare_image(file_path, pca, hog_descriptor)
-            pred = model.predict([features])[0]
-        elif model_type == 'redn':
-            app.logger.info("Predicting with Red Neuronal model...")
-            img = cv2.imread(file_path, cv2.IMREAD_COLOR)
-            img = cv2.resize(img, (96, 96))
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            img = img.reshape(1, 96, 96, 3) / 255.0
-            pred = model_redn.predict(img)
-            result = 'healthy' if pred < 0.5 else 'parkinson'
-            response = jsonify(result=result)
-            response.headers["Cache-Control"] = "no-store"
-            return response
-        else:
-            app.logger.warning(f"Invalid model type requested: {model_type}")
-            return jsonify(error='Invalid model type'), 400
-        
-        result = 'healthy' if pred == 0 else 'parkinson'
-        response = jsonify(result=result)
-        response.headers["Cache-Control"] = "no-store"
-        return response
-    except Exception as e:
-        app.logger.error(f"ERROR DURANTE LA PREDICCIÓN: {e}")
-        response = jsonify(error=f"Failed to predict: {str(e)}"), 500
-        response.headers["Cache-Control"] = "no-store"
-        return response
+    filename = secure_filename(file.filename)
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    file.save(file_path)
+
+    return jsonify(filename=filename)
 
 if __name__ == '__main__':
     app.run(debug=True, port=5021)
