@@ -17,7 +17,7 @@ document.addEventListener("DOMContentLoaded", function() {
                 titleText = 'Cargar Imagen de onda o espiral';
                 break;
             default:
-                actionUrl = '/predict/redn'; // En caso de no reconocer el tipo, no realizar acción.
+                actionUrl = '/predict/redn';
                 titleText = 'Selecciona una imagen de Onda y Espiral';
                 break;
         }
@@ -27,27 +27,22 @@ document.addEventListener("DOMContentLoaded", function() {
         $('#btn-predict').show();
     }
 
-    // Activar el modelo de red neuronal por defecto al cargar
-    updateFormAndTitle('red neuronal'); // Esto establece la red neuronal como opción predeterminada al cargar la página.
+    updateFormAndTitle('red neuronal');
 
     navItems.forEach(navItem => {
         navItem.addEventListener("click", function(event) {
-            event.preventDefault(); // Prevenir la navegación directa
+            event.preventDefault();
             navItems.forEach(item => item.classList.remove('active'));
             this.classList.add('active');
             const modelTypeText = this.querySelector(".nav-text").textContent.trim().toLowerCase();
             updateFormAndTitle(modelTypeText);
-            $('#result').text(''); // Limpiar el resultado anterior
-            $('#result').hide();
-            $('#imagePreview').css('background-image', 'none'); // Limpiar la imagen previa
-            $('#imagePreview').css('background-image', '');
             $('#result').text('');
             $('#result').hide();
+            $('#imagePreview').css('background-image', 'none');
         });
     });
 
     $("#imageUpload").change(function() {
-        // Función para mostrar la imagen seleccionada
         function readURL(input) {
             if (input.files && input.files[0]) {
                 var reader = new FileReader();
@@ -60,15 +55,15 @@ document.addEventListener("DOMContentLoaded", function() {
         }
         readURL(this);
     });
+
     $('#btn-predict').click(function(event) {
-        event.preventDefault(); // Asegurarse de no enviar el formulario de manera tradicional
+        event.preventDefault();
         
-        // Validar si se ha seleccionado una imagen
         var fileInput = $('#imageUpload');
         if (fileInput.get(0).files.length === 0) {
             $('#result').text('Por favor, selecciona una imagen antes de predecir.');
             $('#result').show();
-            return; // No seguir adelante si no hay imagen seleccionada
+            return;
         }
         
         var form_data = new FormData($('#upload-file')[0]);
@@ -84,13 +79,16 @@ document.addEventListener("DOMContentLoaded", function() {
             async: true,
             success: function(data) {
                 $('.loader').hide();
-                $('#result').text('Resultado: ' + data.result).fadeIn(600);
+                if ('result' in data) {
+                    $('#result').text('Resultado: ' + data.result).fadeIn(600);
+                } else {
+                    $('#result').text('Error: ' + data.error).fadeIn(600);
+                }
             },
             error: function(error) {
                 $('.loader').hide();
                 $('#result').text('Error: ' + error.responseText).fadeIn(600);
             }
         });
-     });    
-    });
-
+    }); 
+});

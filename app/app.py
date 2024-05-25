@@ -11,7 +11,6 @@ from keras.models import load_model
 app = Flask(__name__)
 
 HOG_WINDOW_SIZE = (96, 96)
-# Configuración básica del logging
 logging.basicConfig(level=logging.INFO)
 
 app.config['UPLOAD_FOLDER'] = 'uploads/'
@@ -19,14 +18,11 @@ if not os.path.exists(app.config['UPLOAD_FOLDER']):
     os.makedirs(app.config['UPLOAD_FOLDER'])
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg'}
 
-# Variables para modelos y transformadores
 model_redn, model_espirales, model_ondas, hog_espirales, hog_ondas = None, None, None, None, None
 
 def load_hog_descriptor_from_json(file_path):
-    # Cargar los parámetros del descriptor HOG desde un archivo JSON
     with open(file_path, 'r') as f:
         params = json.load(f)
-    # Crear el descriptor HOG usando los parámetros cargados
     hog = cv2.HOGDescriptor(
         tuple(params['winSize']),
         tuple(params['blockSize']),
@@ -36,7 +32,6 @@ def load_hog_descriptor_from_json(file_path):
     )
     return hog
 
-# Inicializar los descriptores HOG al cargar la aplicación
 def load_models_and_transformers():
     global model_redn, model_espirales, model_ondas, hog_espirales, hog_ondas
     try:
@@ -59,7 +54,6 @@ def load_models_and_transformers():
     except Exception as e:
         app.logger.error(f"Failed to load HOG descriptors: {e}")
 
-# Llamar a la función de carga de modelos y transformadores
 load_models_and_transformers()
 
 def allowed_file(filename):
@@ -69,7 +63,7 @@ def allowed_file(filename):
 def index():
     return render_template('index.html')
 
-def prepare_image(image_path, hog_descriptor):
+def prepare_image(image_path, hog_descriptor=None):
     try:
         img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
         if img is None:
@@ -85,34 +79,40 @@ def prepare_image(image_path, hog_descriptor):
         img_resized = cv2.resize(img, HOG_WINDOW_SIZE)
         # Comprobar si la imagen redimensionada está vacía
         if img_resized.size == 0:
-            app.logger.error("Error: Empty resized image")
+            app.logger.error("Error: Resized image is empty")
             return None, None
         
-        # Computa las características HOG
-        features_hog = hog_descriptor.compute(img_resized)
-        
-        # Verificar si hay un error al calcular las características HOG
-        if features_hog is None:
-            app.logger.error("Error: Failed to compute HOG features")
-            return None, None
-        
-        # Asegurarse de que las características HOG tengan la forma correcta
-        features_hog = features_hog.flatten()  # Aplanar las características HOG
-        if len(features_hog) != hog_descriptor.getDescriptorSize():
-            app.logger.error("Error: Incorrect number of HOG features")
-            return None, None
-        
-        # Imprime algunas características HOG
-        app.logger.info("HOG Features:")
-        app.logger.info(features_hog[:5])  # Imprime las primeras 5 características HOG
-        
-        # Imprime el total de características HOG
-        app.logger.info("Total HOG Features: %d", len(features_hog))
-        
-        # Agregar una dimensión adicional para que coincida con la esperada por el clasificador
-        features_hog = np.append(features_hog, 0)  # Valor predeterminado para la característica adicional
-        
-        return img_resized, features_hog
+        if hog_descriptor is not None:
+            # Computa las características HOG
+            features_hog = hog_descriptor.compute(img_resized)
+            
+            # Verificar si hay un error al calcular las características HOG
+            if features_hog is None:
+                app.logger.error("Error: Failed to compute HOG features")
+                return None, None
+            
+            # Asegurarse de que las características HOG tengan la forma correcta
+            features_hog = features_hog.flatten()  # Aplanar las características HOG
+            if len(features_hog) != hog_descriptor.getDescriptorSize():
+                app.logger.error("Error: Incorrect number of HOG features")
+                return None, None
+            
+            # Imprime algunas características HOG
+            app.logger.info("HOG Features:")
+            app.logger.info(features_hog[:5])  # Imprime las primeras 5 características HOG
+            
+            # Imprime el total de características HOG
+            app.logger.info("Total HOG Features: %d", len(features_hog))
+            
+            # Verificar si el número de características HOG coincide con el esperado por el modelo
+            expected_num_features = 4356
+            if len(features_hog) != expected_num_features:
+                app.logger.error(f"Error: Expected {expected_num_features} HOG features, but got {len(features_hog)}")
+                return None, None
+            
+            return img_resized, features_hog
+        else:
+            return img_resized, None
     except Exception as e:
         app.logger.error(f"Error during image processing: {e}")
         return None, None
@@ -140,18 +140,31 @@ def predict(model_type):
             if img is not None and features is not None:
                 app.logger.info(f"Features extracted and transformed for {model_type} model.")
                 model = model_espirales if model_type == 'espirales' else model_ondas
+
+                app.logger.info(f"Feature vector shape: {features.shape}")
+
                 prediction = model.predict([features])[0]
+                app.logger.info(f"Prediction: {prediction}")
+
+                # Mapear las etiquetas a los valores esperados por el modelo
                 label = "Parkinson" if prediction == 1 else "Sano"
-            else:
-                app.logger.error(f"Failed to extract features for {model_type} model.")
+
         elif model_type == 'redn':
             app.logger.info("Predicting with redn model...")
             img = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
             img = cv2.resize(img, (96, 96))
             img = np.expand_dims(img, axis=0) / 255.0
             probability = model_redn.predict(img)[0]
-            label = 'Parkinson' if probability >= 0.5 else 'Sano'
+            prediction = 1 if probability >= 0.5 else 0
+            label = 'Parkinson' if prediction == 1 else 'Sano'
 
+        if label is not None:
+            return jsonify(result=label)
+        else:
+            return jsonify(error='Prediction failed'), 500
+    except Exception as e:
+        app.logger.error(f"Error during prediction: {e}")
+        return jsonify(error='Prediction failed'), 500
         return jsonify(result=label)
     except Exception as e:
         app.logger.error(f"Error during prediction: {e}")
