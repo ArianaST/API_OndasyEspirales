@@ -1,4 +1,4 @@
-# **Interfaz de Predicción para Micrografía en Parkinson**
+# **Interfaz de Predicción para Micrografía**
 
 Este repositorio contiene la implementación final de la interfaz desarrollada como parte de un proyecto de investigación sobre la **micrografía en la Enfermedad de Parkinson**. La herramienta está construida con **Flask** para el backend y **CSS** para el diseño de la interfaz, permitiendo la carga y uso de modelos de predicción previamente entrenados y preprocesados.
 
